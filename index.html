@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shadow Strike - Action Shooter</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    background: #080d19;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+
+h1 { color: #00f5ff; margin: 20px 0 8px; }
+p { color: #b9c6dc; }
+
+canvas {
+    display: block;
+    width: min(900px, 96vw);
+    height: auto;
+    margin: 15px auto;
+    border: 2px solid #00e5ff;
+    border-radius: 10px;
+    background: #101a35;
+}
+
+button {
+    background: #00d9ff;
+    color: #07111c;
+    border: 0;
+    padding: 12px 22px;
+    margin: 5px;
+    border-radius: 8px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover { background: #7df5ff; }
+</style>
+</head>
+<body>
+
+<h1>⚡ SHADOW STRIKE</h1>
+<p>Move: W A S D or Arrow Keys | Shoot: SPACE</p>
+
+<canvas id="game" width="900" height="500"></canvas>
+
+<button id="restart">↻ RESTART</button>
+<p id="status" aria-live="polite">Defeat the enemies and survive!</p>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const statusText = document.getElementById("status");
+
+const keys = {};
+let player, bullets, enemies, particles;
+let score, health, frame, gameOver, animationId;
+
+function resetGame() {
+    player = { x: 100, y: 220, w: 36, h: 42, speed: 5 };
+    bullets = [];
+    enemies = [];
+    particles = [];
+    score = 0;
+    health = 100;
+    frame = 0;
+    gameOver = false;
+    statusText.textContent = "Survive as long as you can!";
+}
+
+document.addEventListener("keydown", e => {
+    const key = e.key.toLowerCase();
+
+    if ([" ", "arrowup", "arrowdown", "arrowleft", "arrowright"].includes(key)) {
+        e.preventDefault();
+    }
+
+    keys[key] = true;
+
+    if (e.code === "Space" && !e.repeat && !gameOver) {
+        shoot();
+    }
+
+    if (key === "r" && gameOver) resetGame();
+});
+
+document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+});
+
+document.getElementById("restart").addEventListener("click", resetGame);
+
+function shoot() {
+    bullets.push({
+        x: player.x + player.w,
+        y: player.y + player.h / 2 - 3,
+        w: 15,
+        h: 6,
+        speed: 10
+    });
+}
+
+function spawnEnemy() {
+    const size = 28 + Math.random() * 15;
+    enemies.push({
+        x: canvas.width + size,
+        y: 35 + Math.random() * (canvas.height - 100),
+        w: size,
+        h: size,
+        speed: 1.5 + Math.random() * 1.5,
+        hp: Math.random() < 0.25 ? 2 : 1
+    });
+}
+
+function explosion(x, y) {
+    for (let i = 0; i < 10; i++) {
+        particles.push({
+            x, y,
+            vx: (Math.random() - 0.5) * 6,
+            vy: (Math.random() - 0.5) * 6,
+            life: 20
+        });
+    }
+}
+
+function overlaps(a, b) {
+    return a.x < b.x + b.w &&
+           a.x + a.w > b.x &&
+           a.y < b.y + b.h &&
+           a.y + a.h > b.y;
+}
+
+function update() {
+    if (gameOver) return;
+
+    frame++;
+
+    if (keys["arrowup"] || keys["w"]) player.y -= player.speed;
+    if (keys["arrowdown"] || keys["s"]) player.y += player.speed;
+    if (keys["arrowleft"] || keys["a"]) player.x -= player.speed;
+    if (keys["arrowright"] || keys["d"]) player.x += player.speed;
+
+    player.x = Math.max(0, Math.min(canvas.width - player.w, player.x));
+    player.y = Math.max(0, Math.min(canvas.height - player.h, player.y));
+
+    // Continuous shooting while Space is held
+    if (keys[" "] && frame % 10 === 0) shoot();
+
+    // Create enemies more frequently as the score grows
+    const spawnRate = Math.max(22, 65 - Math.floor(score / 10));
+    if (frame % spawnRate === 0) spawnEnemy();
+
+    bullets.forEach(b => b.x += b.speed);
+    bullets = bullets.filter(b => b.x < canvas.width);
+
+    enemies.forEach(enemy => {
+        enemy.x -= enemy.speed + score / 300;
+
+        if (overlaps(player, enemy)) {
+            enemy.dead = true;
+            health -= 20;
+            explosion(enemy.x, enemy.y);
+        }
+    });
+
+    // Bullet and enemy collisions
+    bullets.forEach(bullet => {
+        enemies.forEach(enemy => {
+            if (!bullet.dead && !enemy.dead && overlaps(bullet, enemy)) {
+                bullet.dead = true;
+                enemy.hp--;
+
+                if (enemy.hp <= 0) {
+                    enemy.dead = true;
+                    score += 10;
+                    explosion(enemy.x, enemy.y);
+                }
+            }
+        });
+    });
+
+    enemies.forEach(enemy => {
+        if (enemy.x + enemy.w < 0 && !enemy.dead) {
+            enemy.dead = true;
+            health -= 10;
+        }
+    });
+
+    bullets = bullets.filter(b => !b.dead);
+    enemies = enemies.filter(e => !e.dead);
+
+    particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.life--;
+    });
+
+    particles = particles.filter(p => p.life > 0);
+
+    if (health <= 0) {
+        health = 0;
+        gameOver = true;
+        statusText.textContent = "Mission failed! Click Restart or press R.";
+    }
+}
+
+function drawBackground() {
+    const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    gradient.addColorStop(0, "#101a35");
+    gradient.addColorStop(1, "#080d19");
+
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Stars
+    ctx.fillStyle = "#7185ae";
+    for (let i = 0; i < 65; i++) {
+        const x = (i * 137 + frame * 0.4) % canvas.width;
+        const y = (i * 79) % canvas.height;
+        ctx.fillRect(x, y, 2, 2);
+    }
+
+    // Floor grid
+    ctx.strokeStyle = "#1d3154";
+    ctx.lineWidth = 1;
+
+    for (let x = 0; x < canvas.width; x += 50) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+    }
+}
+
+function drawPlayer() {
+    // Body
+    ctx.fillStyle = "#00e5ff";
+    ctx.fillRect(player.x, player.y + 10, player.w, player.h - 10);
+
+    // Head and helmet
+    ctx.fillStyle = "#c7f8ff";
+    ctx.fillRect(player.x + 7, player.y, 23, 20);
+
+    ctx.fillStyle = "#142747";
+    ctx.fillRect(player.x + 9, player.y + 8, 20, 6);
+
+    // Eyes
+    ctx.fillStyle = "white";
+    ctx.fillRect(player.x + 22, player.y + 9, 4, 3);
+
+    // Blaster
+    ctx.fillStyle = "#b7c8e8";
+    ctx.fillRect(player.x + player.w - 2, player.y + 20, 19, 7);
+
+    // Energy core
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(player.x + 13, player.y + 23, 10, 8);
+}
+
+function drawEnemy(enemy) {
+    ctx.fillStyle = enemy.hp > 1 ? "#ff9f43" : "#ff3864";
+
+    ctx.beginPath();
+    ctx.arc(
+        enemy.x + enemy.w / 2,
+        enemy.y + enemy.h / 2,
+        enemy.w / 2,
+        0,
+        Math.PI * 2
+    );
+    ctx.fill();
+
+    ctx.fillStyle = "#260d25";
+    ctx.fillRect(enemy.x + 6, enemy.y + 9, 6, 5);
+    ctx.fillRect(enemy.x + enemy.w - 12, enemy.y + 9, 6, 5);
+
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(enemy.x + 8, enemy.y + 10, 3, 3);
+    ctx.fillRect(enemy.x + enemy.w - 11, enemy.y + 10, 3, 3);
+
+    if (enemy.hp > 1) {
+        ctx.fillStyle = "white";
+        ctx.font = "12px Arial";
+        ctx.fillText("2", enemy.x + enemy.w / 2 - 3, enemy.y - 4);
+    }
+}
+
+function draw() {
+    drawBackground();
+
+    enemies.forEach(drawEnemy);
+
+    bullets.forEach(bullet => {
+        ctx.fillStyle = "#a5ffff";
+        ctx.fillRect(bullet.x, bullet.y, bullet.w, bullet.h);
+
+        ctx.fillStyle = "#00e5ff";
+        ctx.fillRect(bullet.x - 4, bullet.y + 1, 5, 4);
+    });
+
+    drawPlayer();
+
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life / 20;
+        ctx.fillStyle = "#ffcc66";
+        ctx.fillRect(p.x, p.y, 5, 5);
+    });
+    ctx.globalAlpha = 1;
+
+    // Score
+    ctx.fillStyle = "white";
+    ctx.font = "bold 21px Arial";
+    ctx.fillText("SCORE: " + score, 20, 32);
+
+    // Health bar
+    ctx.fillStyle = "#27344f";
+    ctx.fillRect(canvas.width - 180, 18, 150, 18);
+
+    ctx.fillStyle = health > 30 ? "#00ed9a" : "#ff3864";
+    ctx.fillRect(canvas.width - 180, 18, 150 * health / 100, 18);
+
+    ctx.fillStyle = "white";
+    ctx.font = "12px Arial";
+    ctx.fillText("HEALTH " + health + "%", canvas.width - 180, 52);
+
+    if (gameOver) {
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        ctx.textAlign = "center";
+        ctx.fillStyle = "#00f5ff";
+        ctx.font = "bold 46px Arial";
+        ctx.fillText("GAME OVER", canvas.width / 2, 220);
+
+        ctx.fillStyle = "white";
+        ctx.font = "23px Arial";
+        ctx.fillText("Final Score: " + score, canvas.width / 2, 265);
+
+        ctx.font = "18px Arial";
+        ctx.fillText("Press R or click Restart", canvas.width / 2, 305);
+        ctx.textAlign = "left";
+    }
+}
+
+function loop() {
+    update();
+    draw();
+    animationId = requestAnimationFrame(loop);
+}
+
+resetGame();
+loop();
+</script>
+</body>
+</html>
